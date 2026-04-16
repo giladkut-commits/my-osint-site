@@ -45,7 +45,7 @@ if 'user' not in st.session_state:
         st.write("אנא התחבר עם חשבון Google כדי לאמת את זהותך ולהתחיל בסריקה.")
         flow = create_flow()
         flow.redirect_uri = st.secrets["google_auth"]["redirect_uri"]
-        auth_url, _ = flow.authorization_url(prompt='reconsent')
+        auth_url, _ = flow.authorization_url(prompt='consent')
         st.link_button("התחבר באמצעות Google", auth_url)
         st.stop()
 
