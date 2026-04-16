@@ -5,4 +5,6 @@ scrapy
 google-auth-oauthlib
 google-api-python-client
 opencv-python-headless
-deepface==0.0.92
+tensorflow==2.15.0
+deepface
+tf-keras
