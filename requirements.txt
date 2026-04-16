@@ -8,3 +8,4 @@ opencv-python-headless
 tensorflow==2.15.0
 deepface
 tf-keras
+streamlit-google-oauth
