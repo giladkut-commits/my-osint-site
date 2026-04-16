@@ -10,12 +10,13 @@ import pandas as pd
 from google_auth_oauthlib.flow import Flow
 from face_verifier import FaceVerifier
 
-# הגבלת משאבים
+# הגבלת משאבים לחיסכון בזיכרון
 tf.config.set_visible_devices([], 'GPU')
 
 st.set_page_config(page_title="Cyber OSINT Pro", layout="wide", page_icon="🛡️")
 
 def create_flow():
+    # יצירת ה-Flow מתוך ה-Secrets
     return Flow.from_client_config(
         {
             "web": {
@@ -32,65 +33,107 @@ def create_flow():
 # --- לוגיקת אימות (Authentication) ---
 
 if 'user' not in st.session_state:
-    query_params = st.query_params
+    params = st.query_params
     
-    if "code" in query_params:
+    if "code" in params:
         try:
+            # 2. התיקון הקריטי: יצירת פלואו ושחזור ה-verifier מהזיכרון
             flow = create_flow()
             flow.redirect_uri = st.secrets["google_auth"]["redirect_uri"]
             
-            # --- התיקון הקריטי: שחזור ה-verifier מה-session_state ---
+            # אם המפתח הסודי (Verifier) נמצא בזיכרון - נשלוף אותו
             if 'code_verifier' in st.session_state:
                 flow.code_verifier = st.session_state['code_verifier']
             
-            flow.fetch_token(code=query_params["code"])
+            # החלפת הקוד בטוקן מול גוגל
+            flow.fetch_token(code=params["code"])
             session = flow.authorized_session()
             user_info = session.get("https://www.googleapis.com/oauth2/v2/userinfo").json()
             
+            # שמירת המשתמש והסרת המפתח הזמני
             st.session_state.user = user_info
-            
-            # ניקוי
-            st.query_params.clear() 
             if 'code_verifier' in st.session_state:
                 del st.session_state['code_verifier']
-                
+            
+            # ניקוי הכתובת וריענון דף נקי
+            st.query_params.clear()
             st.rerun()
             
         except Exception as e:
             st.error(f"שגיאת התחברות: {e}")
-            if st.button("נסה להתחבר שוב מההתחלה"):
+            st.info("החיבור פג תוקף. נסה להתחבר שוב.")
+            if st.button("חזרה למסך כניסה"):
                 st.query_params.clear()
                 st.rerun()
             st.stop()
     else:
-        st.title("🛡️ כניסה למערכת OSINT")
+        # דף כניסה
+        st.title("🛡️ מערכת OSINT וזיהוי פנים")
+        st.write("אנא התחבר עם חשבון Google כדי להתחיל.")
+        
         flow = create_flow()
         flow.redirect_uri = st.secrets["google_auth"]["redirect_uri"]
         
-        # יצירת הלינק ושמירת ה-verifier ב-session_state לפני שהמשתמש עוזב את האתר
-        auth_url, _ = flow.authorization_url(prompt='consent')
+        # 3. יצירת הלינק ושמירת ה-verifier בזיכרון לפני המעבר לגוגל
+        auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
         st.session_state['code_verifier'] = flow.code_verifier
         
         st.link_button("התחבר באמצעות Google", auth_url)
         st.stop()
 
-# --- הממשק הראשי ---
-# בזכות ה-st.stop מקודם, הקוד יגיע לכאן רק אם באמת יש user
+# --- הממשק הראשי (רץ רק אם המשתמש מחובר) ---
 user = st.session_state.user
-
 st.sidebar.image(user.get("picture"), width=80)
 st.sidebar.write(f"שלום, **{user.get('name')}**")
+
 if st.sidebar.button("התנתק"):
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
 
-st.title("🔍 סורק חשיפה אישית וזיהוי פנים")
+st.title("🔍 סריקה ואיתור חשיפה")
 st.markdown("---")
 
-# שאר הקוד (חיפוש, קראולר וזיהוי פנים) נשאר אותו דבר כמו ששלחתי לך קודם...
-# (השארתי את זה קצר כדי שתתמקד בתיקון ה-Login)
+# קלט מהמשתמש
 target_name = st.text_input("שם מלא לחיפוש:", value=user.get('name'))
+
 if st.button("🚀 הפעל סריקה"):
-    st.write("מריץ סריקה...")
-    # כאן יבוא המשך הקוד של הקראולר שנתתי לך
+    with st.status("מבצע סריקה...", expanded=True) as status:
+        st.write("🌐 מחפש מידע ברשת...")
+        
+        # הרצת הקראולר (וודא שזה השם של הקובץ שלך!)
+        cmd = f'python -c "from crawler import CrawlerManager; CrawlerManager.run_crawler([\'{target_name}\'], \'results.json\')"'
+        subprocess.run(cmd, shell=True)
+        
+        if os.path.exists("results.json"):
+            with open("results.json", "r") as f:
+                results = json.load(f)
+            
+            st.write(f"✅ נמצאו {len(results)} תוצאות. מנתח התאמה...")
+            
+            verifier = FaceVerifier(user.get("picture"))
+            matches = []
+            
+            for item in results:
+                if item.get("img"):
+                    try:
+                        is_me, conf = verifier.is_it_me(item["img"])
+                        if is_me and conf > 0.7:
+                            item["confidence"] = conf
+                            matches.append(item)
+                    except:
+                        continue
+            
+            status.update(label="הסריקה הושלמה!", state="complete")
+            
+            if matches:
+                st.warning(f"נמצאו {len(matches)} התאמות פנים!")
+                for m in matches:
+                    c1, c2 = st.columns([1, 4])
+                    c1.image(m["img"], width=150)
+                    c2.markdown(f"**מקור:** [{m['title']}]({m['link']})")
+                    c2.write(f"ביטחון: {m['confidence']:.2%}")
+            else:
+                st.success("לא נמצאו התאמות פנים.")
+        else:
+            st.error("הסריקה נכשלה. וודא שקובץ crawler.py תקין.")
