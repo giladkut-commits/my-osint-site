@@ -1,7 +1,5 @@
 import os
-# חובה להגדיר לפני כל ה-Imports כדי ש-DeepFace יעבוד בשרת
 os.environ["TF_USE_LEGACY_KERAS"] = "1"
-
 import streamlit as st
 import json
 import subprocess
